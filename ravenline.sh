@@ -26,7 +26,9 @@ now=$(date +%s 2>/dev/null); isnum "$now" || now=0
 tick=${RL_TICK:-$now};        isnum "$tick" || tick=0
 
 # ---- git, refreshed at most every 5s; the timestamp lives inside the cache ----
-cache="${TMPDIR:-/tmp}/ravenline.${sid//[^[:alnum:]]/}"
+key=${sid//[^[:alnum:]]/}
+# Without a session id there is no safe cache key; sessions would share one file.
+if [[ -z $key || $sid == none ]]; then cache=/dev/null; else cache="${TMPDIR:-/tmp}/ravenline.$key"; fi
 stamp=0 branch='' dirty=''
 { IFS=$'\t' read -r stamp branch dirty; } 2>/dev/null <"$cache"
 isnum "$stamp" || stamp=0
