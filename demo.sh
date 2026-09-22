@@ -5,13 +5,14 @@
 
 cd "$(dirname "$0")" || exit 1
 fail=0
-trap 'rm -f "${TMPDIR:-/tmp}"/ravenline.demo*' EXIT
+tag="demo$$x"   # unique to this run, so cleanup never touches other files
+trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"*' EXIT
 
 json() { # json <ctx> <effort>
   printf '{"model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":%s},' "$1"
   printf '"effort":{"level":"%s"},"thinking":{"enabled":true},' "$2"
   printf '"rate_limits":{"five_hour":{"used_percentage":41},"seven_day":{"used_percentage":83}},'
-  printf '"workspace":{"current_dir":"%s"},"session_id":"demo%s"}' "$PWD" "$RANDOM"
+  printf '"workspace":{"current_dir":"%s"},"session_id":"%s%s"}' "$PWD" "$tag" "$RANDOM"
 }
 
 run() { # run <label> <tick> <stdin> [VAR=value]

@@ -34,7 +34,7 @@ if (( now - stamp >= 5 )); then
   branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null | tr -d '\r')
   [[ $branch == HEAD ]] && branch=$(git -C "$dir" rev-parse --short HEAD 2>/dev/null | tr -d '\r')
   dirty=''
-  [[ -n $branch ]] && ! git -C "$dir" diff --no-ext-diff --quiet HEAD -- 2>/dev/null && dirty='*'
+  [[ -n $branch && -n $(git -C "$dir" status --porcelain 2>/dev/null | head -1) ]] && dirty='*'
   printf '%s\t%s\t%s\n' "$now" "$branch" "$dirty" >"$cache" 2>/dev/null
 fi
 
