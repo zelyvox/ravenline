@@ -6,7 +6,11 @@
 cd "$(dirname "$0")" || exit 1
 fail=0
 tag="demo$$x"   # unique to this run, so cleanup never touches other files
-trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"*' EXIT
+# Keep the demo off the real session: no real agent logs, lanes or limits file.
+sandbox=$(mktemp -d) || exit 1
+trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"*; rm -rf "$sandbox"' EXIT
+export RAVENLINE_CLAUDE_DIR="$sandbox/claude" RAVENLINE_CODEX_DIR="$sandbox/codex"
+export ZELYVOX_LANES_DIR="$sandbox/lanes" RAVENLINE_LIMITS_FILE="$sandbox/limits.json"
 
 json() { # json <ctx> <effort>
   printf '{"model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":%s},' "$1"
@@ -46,6 +50,22 @@ run "NO_COLOR"                5  "$(json 40 high)" NO_COLOR=1
 
 out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh)
 [[ $out == *$'\033'* ]] && { echo "  FAIL: NO_COLOR still printed escapes"; fail=1; }
+
+# Subagent rows: one still working, one that delivered its report through the
+# SubagentHandback tool (no end_turn after it). Only the first may be listed.
+transcript="$sandbox/session.jsonl"; subs="$sandbox/session/subagents"
+mkdir -p "$subs"; : >"$transcript"
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '{"type":"assistant","timestamp":"%s","message":{"content":[{"type":"tool_use","name":"Bash"}]}}\n' "$ts" >"$subs/agent-live.jsonl"
+printf '{"description":"working lane","model":"sonnet"}' >"$subs/agent-live.meta.json"
+{ printf '{"type":"assistant","timestamp":"%s","message":{"content":[{"type":"tool_use","name":"SubagentHandback"}]}}\n' "$ts"
+  printf '{"type":"user","timestamp":"%s","message":{"content":[{"type":"tool_result"}]}}\n' "$ts"
+} >"$subs/agent-done.jsonl"
+printf '{"description":"finished lane","model":"sonnet"}' >"$subs/agent-done.meta.json"
+out=$(json 40 high | sed "s|}\$|,\"transcript_path\":\"$transcript\"}|" | NO_COLOR=1 bash ./ravenline.sh)
+printf '\n\033[1m%s\033[0m\n%s\n' "subagents" "$out"
+[[ $out == *"working lane"* ]] || { echo "  FAIL: running subagent not listed"; fail=1; }
+[[ $out == *"finished lane"* ]] && { echo "  FAIL: handed-back subagent still listed"; fail=1; }
 
 echo
 (( fail )) && echo "some checks failed" || echo "all checks passed"

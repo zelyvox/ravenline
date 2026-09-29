@@ -32,6 +32,11 @@ Muninn, thought and memory.
   5-hour / 7-day rate-limit usage (turns red at 80%)
 - **Line 2:** context gauge (green → yellow → red), git branch with `*` for
   uncommitted changes
+- **Below:** one line per background worker that is still running: Claude Code
+  subagents (`✦`), Codex sessions and Zelyvox lanes (`⚙`), with elapsed time.
+  A worker drops off when it finishes, including a subagent that ends by handing
+  its report back. Logs older than two hours are never opened; nothing leaves
+  your machine.
 
 ## Install
 
@@ -64,6 +69,10 @@ prefer a still bird.
 | --- | --- |
 | `NO_COLOR` | any value disables colors |
 | `RL_TICK` | pin the animation clock (tests, screenshots) |
+| `RAVENLINE_CLAUDE_DIR` | Claude Code data dir to scan for workers (default `~/.claude`) |
+| `RAVENLINE_CODEX_DIR` | Codex data dir (default `~/.codex`) |
+| `ZELYVOX_LANES_DIR` | Zelyvox lane metadata (default `~/.zelyvox/lanes`) |
+| `RAVENLINE_LIMITS_FILE` | where the latest rate limits are saved for other local tools (default `~/.claude/ravenline-limits.json`) |
 
 ## Development
 
