@@ -30,7 +30,7 @@ Muninn, thought and memory.
 
 - **Line 1:** the raven, model, effort, `think` when extended thinking is on,
   5-hour / 7-day rate-limit usage, and any weekly limit scoped to one model,
-  such as `fable` on Max (each turns red at 80%)
+  such as `fable` on Max, shown in violet (each turns red at 80%)
 - **Line 2:** context gauge (green → yellow → red), git branch with `*` for
   uncommitted changes
 - **Below:** one line per background worker that is still running: Claude Code
