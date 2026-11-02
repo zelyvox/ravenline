@@ -314,11 +314,11 @@ agent_scan() {
       printf '%s\t%s\n' "$p" "$sig" >>"$tmp.stat"
       if [[ ${signatures[$p]:-} != "$sig" ]]; then
         tails+=("$p")
-        if [[ ${readiness[$p]:-0} != 1 ]]; then
-          heads+=("$p")
-          if [[ $p == */subagents/agent-*.jsonl && -r ${p%.jsonl}.meta.json ]]; then
-            meta_args+=(--arg "meta:$p" "$(<"${p%.jsonl}.meta.json")")
-          fi
+        [[ ${readiness[$p]:-0} != 1 ]] && heads+=("$p")
+        # Re-read subagent metadata whenever the log changes: Claude Code sets
+        # stoppedByUser there when the user stops a background subagent.
+        if [[ $p == */subagents/agent-*.jsonl && -r ${p%.jsonl}.meta.json ]]; then
+          meta_args+=(--arg "meta:$p" "$(<"${p%.jsonl}.meta.json")")
         fi
       fi
     done < <(stat -c '%Y:%s:%n' -- "${files[@]}" 2>/dev/null)
@@ -393,7 +393,13 @@ agent_scan() {
         # A background subagent can also end by delivering its report through the
         # SubagentHandback tool: its last lines are that tool_use and its result,
         # with no end_turn after them. If it is resumed, new lines follow.
-        (if $sub then ($last[-1].type=="assistant" and $last[-1].message.stop_reason=="end_turn") or
+        # A subagent the user stopped ends with an interrupt marker and is
+        # flagged stoppedByUser in its metadata; neither leaves an end_turn.
+        (if $sub then ($sm.stoppedByUser==true) or
+                      ($last[-1].type=="user" and
+                       any($last[-1].message.content[]?; .type=="text" and
+                         ((.text//"")|startswith("[Request interrupted by user")))) or
+                      ($last[-1].type=="assistant" and $last[-1].message.stop_reason=="end_turn") or
                            ($last[-1].type=="assistant" and $last[-1].stop_reason=="end_turn") or
                            ($last[-1].type=="user" and ($last|length)>=2 and $last[-2].type=="assistant" and
                             any($last[-2].message.content[]?; .type=="tool_use" and .name=="SubagentHandback"))
