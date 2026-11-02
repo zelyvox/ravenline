@@ -158,10 +158,10 @@ fi
 # ---- palette, taken from the Zelyvox raven: plum feathers, bronze clasp ----
 e=$'\033['
 if [[ -n ${NO_COLOR:-} ]]; then
-  off='' bold='' dim='' plum='' bronze='' rust='' mist='' green='' yellow='' red=''
+  off='' bold='' dim='' plum='' bronze='' rust='' mist='' violet='' green='' yellow='' red=''
 else
   off="${e}0m" bold="${e}1m" dim="${e}2m"
-  plum="${e}38;5;140m" bronze="${e}38;5;179m" rust="${e}38;5;167m" mist="${e}38;5;183m"
+  plum="${e}38;5;140m" bronze="${e}38;5;179m" rust="${e}38;5;167m" mist="${e}38;5;183m" violet="${e}38;5;135m"
   green="${e}32m" yellow="${e}33m" red="${e}31m"
 fi
 
@@ -209,10 +209,10 @@ full=$(( ctx * 8 / 100 )); (( full > 8 )) && full=8; (( full < 0 )) && full=0
 printf -v gauge '%*s' "$full" '';       gauge=${gauge// /▓}
 printf -v rest  '%*s' $(( 8 - full )) ''; gauge+=${rest// /░}
 
-limit() { # limit <label> <percent>; prints nothing when unknown
+limit() { # limit <label> <percent> [tone]; prints nothing when unknown
   (( $2 < 0 )) && return
-  local t=$dim; (( $2 >= 80 )) && t=$rust
-  printf '  %s%s%s %s%s%%%s' "$dim" "$1" "$off" "$t" "$2" "$off"
+  local l=${3:-$dim} t=${3:-$dim}; (( $2 >= 80 )) && t=$rust
+  printf '  %s%s%s %s%s%%%s' "$l" "$1" "$off" "$t" "$2" "$off"
 }
 
 line1="${tone}${bird}${off}  ${bold}${model}${off}"
@@ -220,7 +220,9 @@ line1="${tone}${bird}${off}  ${bold}${model}${off}"
 [[ $think == true ]] && line1+=" ${plum}think${off}"
 line1+="$(limit 5h "$lim5")$(limit 7d "$lim7")"
 for (( i=0; i<${#scoped_limits[@]}; i+=2 )); do
-  line1+="$(limit "${scoped_limits[i]}" "${scoped_limits[i+1]}")"
+  # Fable gets its own colour, so its weekly limit stands out from 5h / 7d.
+  ltone=''; [[ ${scoped_limits[i]} == fable ]] && ltone=$violet
+  line1+="$(limit "${scoped_limits[i]}" "${scoped_limits[i+1]}" "$ltone")"
 done
 
 line2="${gtone}${gauge} ${ctx}%${off}"
