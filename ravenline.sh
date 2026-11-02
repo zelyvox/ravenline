@@ -393,7 +393,13 @@ agent_scan() {
         # A background subagent can also end by delivering its report through the
         # SubagentHandback tool: its last lines are that tool_use and its result,
         # with no end_turn after them. If it is resumed, new lines follow.
-        (if $sub then ($last[-1].type=="assistant" and $last[-1].message.stop_reason=="end_turn") or
+        # A subagent the user stopped ends with an interrupt marker instead of an
+        # end_turn. If it is resumed, new lines follow and it shows again.
+        (if $sub then ($last[-1].type=="user" and
+                       any($last[-1].message.content |
+                           if type=="string" then . else (.[]?|select(.type=="text")|.text) end;
+                         (.//"")|tostring|startswith("[Request interrupted by user"))) or
+                      ($last[-1].type=="assistant" and $last[-1].message.stop_reason=="end_turn") or
                            ($last[-1].type=="assistant" and $last[-1].stop_reason=="end_turn") or
                            ($last[-1].type=="user" and ($last|length)>=2 and $last[-2].type=="assistant" and
                             any($last[-2].message.content[]?; .type=="tool_use" and .name=="SubagentHandback"))
