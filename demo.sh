@@ -11,6 +11,10 @@ sandbox=$(mktemp -d) || exit 1
 trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"*; rm -rf "$sandbox"' EXIT
 export RAVENLINE_CLAUDE_DIR="$sandbox/claude" RAVENLINE_CODEX_DIR="$sandbox/codex"
 export ZELYVOX_LANES_DIR="$sandbox/lanes" RAVENLINE_LIMITS_FILE="$sandbox/limits.json"
+# No credentials and a fresh usage cache: the demo never calls the usage endpoint.
+export RAVENLINE_CREDENTIALS_FILE="$sandbox/no-credentials.json" RAVENLINE_USAGE_FILE="$sandbox/usage.tsv"
+export RAVENLINE_USAGE=1 RAVENLINE_USAGE_TTL=300
+printf '%s\nFable\t67\n' "$(date +%s)" >"$RAVENLINE_USAGE_FILE"
 
 json() { # json <ctx> <effort>
   printf '{"model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":%s},' "$1"
@@ -50,6 +54,14 @@ run "NO_COLOR"                5  "$(json 40 high)" NO_COLOR=1
 
 out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh)
 [[ $out == *$'\033'* ]] && { echo "  FAIL: NO_COLOR still printed escapes"; fail=1; }
+
+# Model-scoped weekly limit from the usage cache; hidden once the cache is stale.
+out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh | head -1)
+printf '\n\033[1m%s\033[0m\n%s\n' "model-scoped limit" "$out"
+[[ $out == *"fable 67%"* ]] || { echo "  FAIL: scoped limit not shown"; fail=1; }
+printf '%s\nFable\t67\n' "$(( $(date +%s) - 3600 ))" >"$RAVENLINE_USAGE_FILE"
+out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh | head -1)
+[[ $out == *fable* ]] && { echo "  FAIL: stale scoped limit still shown"; fail=1; }
 
 # Subagent rows: one still working, one that delivered its report through the
 # SubagentHandback tool (no end_turn after it). Only the first may be listed.

@@ -75,6 +75,71 @@ if [[ -n ${rl:-} && $rl != null ]] && (( lim5 >= 0 )); then
   printf '{"ts":%s,"rate_limits":%s}\n' "$now" "$rl" 2>/dev/null >"$lf.tmp" && mv -f "$lf.tmp" "$lf" 2>/dev/null
 fi
 
+# ---- model-scoped weekly limits (e.g. Fable on Max) ----
+# Claude Code does not hand these to status lines, so ravenline asks the usage
+# endpoint itself: in the background, at most once per RAVENLINE_USAGE_TTL
+# seconds, shared by all sessions (one claims a lock, the rest skip). The OAuth
+# token goes to curl only on stdin (never argv, never disk), ~/.curlrc is
+# ignored and redirects are not followed. Only model names and percentages are
+# cached. A cache older than max(30 min, 2 x TTL) is unknown and not shown.
+usage_fetch() {
+  set -o pipefail
+  local cf=${RAVENLINE_CREDENTIALS_FILE:-$HOME/.claude/.credentials.json} token='' exp='' rows
+  command -v curl >/dev/null 2>&1 || return
+  IFS=$'\t' read -r token exp < <(jq -r '.claudeAiOauth | [(.accessToken // "" | tostring),
+    (.expiresAt // 0 | if type == "number" then floor else 0 end | tostring)] | @tsv' "$cf" 2>/dev/null | tr -d '\r')
+  [[ -n $token ]] || return
+  isnum "$exp" && (( exp > 0 && exp / 1000 < now )) && return
+  rows=$(printf 'Authorization: Bearer %s\n' "$token" |
+    curl -q -sf --max-time 10 --proto '=https' -H @- -H 'anthropic-beta: oauth-2025-04-20' \
+      -H 'User-Agent: ravenline' https://api.anthropic.com/api/oauth/usage |
+    jq -r '.limits[]? | select(type == "object" and .kind == "weekly_scoped") |
+      ((try .scope.model.display_name catch null) // (try .scope.model.id catch null) // "scoped" |
+        tostring | gsub("[^A-Za-z0-9._-]"; "") | .[0:12] | if . == "" then "scoped" else . end) as $n |
+      (.percent | if type == "number" then floor else -1 end) as $p |
+      select($p >= 0) | "\($n)\t\([$p, 100] | min)"' | tr -d '\r') || return
+  token=''
+  printf '%s\n%s\n' "$now" "$rows" 2>/dev/null >"$uf.tmp.$BASHPID" && mv -f "$uf.tmp.$BASHPID" "$uf" 2>/dev/null
+}
+scoped_limits=()
+uf=${RAVENLINE_USAGE_FILE:-$HOME/.claude/ravenline-usage.tsv}
+if [[ ${RAVENLINE_USAGE:-1} != 0 ]]; then
+  uttl=${RAVENLINE_USAGE_TTL:-300}; isnum "$uttl" && (( uttl >= 60 && uttl <= 86400 )) || uttl=300
+  ustale=$(( uttl * 2 > 1800 ? uttl * 2 : 1800 ))
+  ustamp=0 utry=0 ulock=0
+  if [[ -r $uf ]]; then
+    { IFS= read -r ustamp
+      while IFS=$'\t' read -r uname upct; do
+        upct=${upct//$'\r'/}
+        [[ $uname =~ ^[A-Za-z0-9._-]{1,12}$ ]] && isnum "$upct" && scoped_limits+=("${uname,,}" "$upct")
+      done; } 2>/dev/null <"$uf"
+    ustamp=${ustamp//$'\r'/}
+  fi
+  isnum "$ustamp" || ustamp=0
+  (( now - ustamp > ustale || now < ustamp )) && scoped_limits=()
+  { IFS= read -r utry; } 2>/dev/null <"$uf.try"
+  utry=${utry//$'\r'/}; isnum "$utry" || utry=0
+  if (( (now - ustamp >= uttl || now < ustamp) && (now - utry >= uttl || now < utry) )); then
+    # A lock left by a killed fetch is cleared after two minutes.
+    if [[ -e $uf.lock ]]; then
+      { IFS= read -r ulock; } 2>/dev/null <"$uf.lock"
+      ulock=${ulock//$'\r'/}; isnum "$ulock" || ulock=0
+      (( now - ulock > 120 || now < ulock )) && rm -f -- "$uf.lock" 2>/dev/null
+    fi
+    # noclobber makes the claim atomic (O_EXCL); only the winner fetches.
+    set -C
+    if { printf '%s\n' "$now" >"$uf.lock"; } 2>/dev/null; then
+      set +C
+      if { printf '%s\n' "$now" >"$uf.try"; } 2>/dev/null; then
+        ( usage_fetch; rm -f -- "$uf.lock" ) </dev/null >/dev/null 2>&1 &
+      else
+        rm -f -- "$uf.lock" 2>/dev/null
+      fi
+    fi
+    set +C
+  fi
+fi
+
 # ---- git, refreshed at most every 5s; the timestamp lives inside the cache ----
 key=${sid//[^[:alnum:]]/}
 # Without a session id there is no safe cache key; sessions would share one file.
@@ -154,6 +219,9 @@ line1="${tone}${bird}${off}  ${bold}${model}${off}"
 [[ -n $effort ]]     && line1+=" ${plum}effort${off} ${effort}"
 [[ $think == true ]] && line1+=" ${plum}think${off}"
 line1+="$(limit 5h "$lim5")$(limit 7d "$lim7")"
+for (( i=0; i<${#scoped_limits[@]}; i+=2 )); do
+  line1+="$(limit "${scoped_limits[i]}" "${scoped_limits[i+1]}")"
+done
 
 line2="${gtone}${gauge} ${ctx}%${off}"
 if [[ -n $branch ]]; then
