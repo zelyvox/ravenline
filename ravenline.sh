@@ -2,6 +2,7 @@
 # ravenline — a raven that watches your Claude Code session.
 # MIT License, Copyright (c) 2026 Zelyvox
 
+(( BASH_VERSINFO[0] >= 4 )) || { printf 'ravenline: bash 4 or newer is required\n'; exit 0; }
 command -v jq >/dev/null 2>&1 || { printf 'ravenline: jq is required\n'; exit 0; }
 
 # Read lane metadata with bash builtins; lane event logs are not read here.
@@ -71,8 +72,14 @@ tick=${RL_TICK:-$now};        isnum "$tick" || tick=0
 # ---- rate limits snapshot for other local tools; written only when known ----
 if [[ -n ${rl:-} && $rl != null ]] && (( lim5 >= 0 )); then
   lf=${RAVENLINE_LIMITS_FILE:-$HOME/.claude/ravenline-limits.json}
-  # 2>/dev/null first, so a missing directory is silent too.
-  printf '{"ts":%s,"rate_limits":%s}\n' "$now" "$rl" 2>/dev/null >"$lf.tmp" && mv -f "$lf.tmp" "$lf" 2>/dev/null
+  # Rewritten when the limits change or the stamp is a minute old, so an idle
+  # session does not touch the disk every second.
+  lf_old=''; { IFS= read -r lf_old; } 2>/dev/null <"$lf"
+  lf_stamp=${lf_old#\{\"ts\":}; lf_stamp=${lf_stamp%%,*}; isnum "$lf_stamp" || lf_stamp=0
+  if [[ ${lf_old#*,\"rate_limits\":} != "$rl}" ]] || (( now - lf_stamp >= 60 || now < lf_stamp )); then
+    # 2>/dev/null first, so a missing directory is silent too.
+    printf '{"ts":%s,"rate_limits":%s}\n' "$now" "$rl" 2>/dev/null >"$lf.tmp" && mv -f "$lf.tmp" "$lf" 2>/dev/null
+  fi
 fi
 
 # ---- model-scoped weekly limits (e.g. Fable on Max) ----
@@ -153,6 +160,15 @@ if (( now - stamp >= 5 )); then
   dirty=''
   [[ -n $branch && -n $(git -C "$dir" status --porcelain 2>/dev/null | head -1) ]] && dirty='*'
   printf '%s\t%s\t%s\n' "$now" "$branch" "$dirty" >"$cache" 2>/dev/null
+fi
+
+# ---- caches of sessions that ended. A render cancelled mid-scan can leave temp
+# files behind, so once an hour anything older than a day is removed. ----
+sweep="${TMPDIR:-/tmp}/ravenline.sweep"
+sweep_stamp=0; { IFS= read -r sweep_stamp; } 2>/dev/null <"$sweep"
+sweep_stamp=${sweep_stamp//$'\r'/}; isnum "$sweep_stamp" || sweep_stamp=0
+if (( now - sweep_stamp >= 3600 || now < sweep_stamp )) && printf '%s\n' "$now" >"$sweep" 2>/dev/null; then
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'ravenline.*' -mmin +1440 -delete </dev/null >/dev/null 2>&1 &
 fi
 
 # ---- palette, taken from the Zelyvox raven: plum feathers, bronze clasp ----
@@ -288,11 +304,10 @@ agent_scan() {
   shopt -s nullglob
   [[ -n $tp ]] && files+=("${tp%.jsonl}"/subagents/agent-*.jsonl)
   files+=("$cd"/projects/*/*.jsonl "$xd"/sessions/"$today"/rollout-*.jsonl "$xd"/sessions/"$yesterday"/rollout-*.jsonl)
-  local tmp="$base.$BASHPID"
-  # Cache publication is synchronous. Cleanup has no readers left and need not
-  # delay the statusline (close its output descriptors before backgrounding).
-  trap 'rm -f -- "$tmp.stat" "$tmp.head" "$tmp.tail" "$tmp.out" >/dev/null 2>&1 & ((had_nullglob)) || shopt -u nullglob; trap - RETURN' RETURN
-  : >"$tmp.stat"; : >"$tmp.head"; : >"$tmp.tail"
+  local tmp="$base.$BASHPID" tmp_used=0 stat_rows=''
+  # Cleanup stays in the foreground: Claude Code cancels a render when a new
+  # trigger arrives, and a backgrounded rm dies with the process tree.
+  trap '((tmp_used)) && rm -f -- "$tmp.stat" "$tmp.head" "$tmp.tail" "$tmp.out" 2>/dev/null; ((had_nullglob)) || shopt -u nullglob; trap - RETURN' RETURN
   if [[ -r $base ]]; then
     IFS=$'\t' read -r cached_stamp cached_cols cached_lanes <"$base"
     while IFS=$'\t' read -r p oldsig ready started kind label title state clipped; do
@@ -311,7 +326,7 @@ agent_scan() {
       sig="$mt:$size"
       # Interactive sources stay excluded even while they write new messages.
       [[ ${states[$p]:-} == skip ]] && sig=${signatures[$p]}
-      printf '%s\t%s\n' "$p" "$sig" >>"$tmp.stat"
+      stat_rows+="$p"$'\t'"$sig"$'\n'
       if [[ ${signatures[$p]:-} != "$sig" ]]; then
         tails+=("$p")
         if [[ ${readiness[$p]:-0} != 1 ]]; then
@@ -323,7 +338,7 @@ agent_scan() {
       fi
     done < <(stat -c '%Y:%s:%n' -- "${files[@]}" 2>/dev/null)
   fi
-  if [[ ! -s $tmp.stat ]]; then
+  if (( count == 0 )); then
     printf '%s\t%s\t%s\n' "$now" "$acols" "$agent_lane_starts" >"$tmp.out"
     mv -f -- "$tmp.out" "$base"
     return
@@ -338,8 +353,11 @@ agent_scan() {
   fi
   # Read new logs once, without an arbitrary line cutoff: the first real user
   # prompt can follow many environment messages. Ready logs only need tail.
-  (( ${#heads[@]} )) && head -n -0 -v -- "${heads[@]}" >"$tmp.head" 2>/dev/null
-  (( ${#tails[@]} )) && tail -n 3 -v -- "${tails[@]}" >"$tmp.tail" 2>/dev/null
+  # Temp files exist only on this path; a cache hit creates none.
+  tmp_used=1
+  printf '%s' "$stat_rows" >"$tmp.stat"
+  if (( ${#heads[@]} )); then head -n -0 -v -- "${heads[@]}" >"$tmp.head" 2>/dev/null; else : >"$tmp.head"; fi
+  if (( ${#tails[@]} )); then tail -n 3 -v -- "${tails[@]}" >"$tmp.tail" 2>/dev/null; else : >"$tmp.tail"; fi
   [[ -f $base ]] || printf '0\n' >"$base"
   jq -bnr --rawfile stats "$tmp.stat" --rawfile heads "$tmp.head" \
     --rawfile tails "$tmp.tail" --rawfile previous "$base" \
