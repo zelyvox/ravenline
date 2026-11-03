@@ -8,7 +8,7 @@ fail=0
 tag="demo$$x"   # unique to this run, so cleanup never touches other files
 # Keep the demo off the real session: no real agent logs, lanes or limits file.
 sandbox=$(mktemp -d) || exit 1
-trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"*; rm -rf "$sandbox"' EXIT
+trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"* "${TMPDIR:-/tmp}"/ravenline.agents."$tag"*; rm -rf "$sandbox"' EXIT
 export RAVENLINE_CLAUDE_DIR="$sandbox/claude" RAVENLINE_CODEX_DIR="$sandbox/codex"
 export ZELYVOX_LANES_DIR="$sandbox/lanes" RAVENLINE_LIMITS_FILE="$sandbox/limits.json"
 # No credentials and a fresh usage cache: the demo never calls the usage endpoint.
@@ -78,6 +78,9 @@ out=$(json 40 high | sed "s|}\$|,\"transcript_path\":\"$transcript\"}|" | NO_COL
 printf '\n\033[1m%s\033[0m\n%s\n' "subagents" "$out"
 [[ $out == *"working lane"* ]] || { echo "  FAIL: running subagent not listed"; fail=1; }
 [[ $out == *"finished lane"* ]] && { echo "  FAIL: handed-back subagent still listed"; fail=1; }
+# A scan that returns leaves no temp files beside its cache.
+leftover=$(ls "${TMPDIR:-/tmp}"/ravenline.agents."$tag"*.* 2>/dev/null | wc -l)
+(( leftover == 0 )) || { echo "  FAIL: scan left $leftover temp files"; fail=1; }
 
 echo
 (( fail )) && echo "some checks failed" || echo "all checks passed"

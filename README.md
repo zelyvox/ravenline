@@ -57,8 +57,14 @@ On macOS, Claude Code keeps the token in the Keychain rather than in
 
 ## Install
 
-Needs `bash`, `git` and `jq` (`curl` for model-scoped limits). Tested on Windows (Git Bash); uses only portable
-bash, so macOS and Linux should work too.
+Needs bash 4 or newer, `git`, `jq` and GNU coreutils (`stat`, `head`, `tail`,
+`find`); `curl` for model-scoped limits. Tested on Windows (Git Bash); Linux has
+all of it. macOS ships bash 3.2, so install bash with Homebrew and point the
+command at it (`/opt/homebrew/bin/bash ~/.claude/ravenline.sh`); without GNU
+coreutils the worker list should stay empty while the rest works.
+
+Caches live in `$TMPDIR` as `ravenline.*`; those older than a day are swept
+once an hour.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zelyvox/ravenline/main/ravenline.sh \
