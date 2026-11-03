@@ -16,7 +16,7 @@ for lane_file in "${ZELYVOX_LANES_DIR:-$HOME/.zelyvox/lanes}"/*/meta.json; do
   lane_files+=("$lane_file")
 done
 
-model='?' ctx=0 effort='' think=false lim5=-1 lim7=-1 dir=. sid=none transcript=''
+model='?' ctx=0 effort='' think=false lim5=-1 lim7=-1 r5=-1 r7=-1 dir=. sid=none transcript=''
 # @sh quotes every value, so eval only ever sees plain assignments.
 # tr strips the CR that Windows builds of jq append to each line.
 eval "$(jq -r "${lane_args[@]}" '
@@ -38,6 +38,8 @@ eval "$(jq -r "${lane_args[@]}" '
   @sh "think=\(.thinking.enabled // false)",
   @sh "lim5=\(.rate_limits.five_hour.used_percentage // -1 | floor)",
   @sh "lim7=\(.rate_limits.seven_day.used_percentage // -1 | floor)",
+  @sh "r5=\(.rate_limits.five_hour.resets_at // -1 | floor)",
+  @sh "r7=\(.rate_limits.seven_day.resets_at // -1 | floor)",
   @sh "dir=\(.workspace.current_dir // .cwd // ".")",
   @sh "sid=\(.session_id // "none")",
   @sh "transcript=\(.transcript_path // "")",
@@ -66,6 +68,8 @@ isnum() { [[ $1 =~ ^-?[0-9]+$ ]]; }
 isnum "$ctx"   || ctx=0
 isnum "$lim5"  || lim5=-1
 isnum "$lim7"  || lim7=-1
+isnum "$r5"    || r5=-1
+isnum "$r7"    || r7=-1
 now=$(date +%s 2>/dev/null); isnum "$now" || now=0
 tick=${RL_TICK:-$now};        isnum "$tick" || tick=0
 
@@ -225,16 +229,25 @@ full=$(( ctx * 8 / 100 )); (( full > 8 )) && full=8; (( full < 0 )) && full=0
 printf -v gauge '%*s' "$full" '';       gauge=${gauge// /▓}
 printf -v rest  '%*s' $(( 8 - full )) ''; gauge+=${rest// /░}
 
-limit() { # limit <label> <percent> [tone]; prints nothing when unknown
+limit() { # limit <label> <percent> [tone] [resets_at]; prints nothing when unknown
   (( $2 < 0 )) && return
-  local l=${3:-$dim} t=${3:-$dim}; (( $2 >= 80 )) && t=$rust
-  printf '  %s%s%s %s%s%%%s' "$l" "$1" "$off" "$t" "$2" "$off"
+  local l=${3:-$dim} t=${3:-$dim} left when=''; (( $2 >= 80 )) && t=$rust
+  # Time until the window resets, in the two largest units that matter.
+  if isnum "${4:-}" && (( $4 > now )); then
+    left=$(( $4 - now ))
+    if   (( left >= 86400 )); then printf -v when '%dd%dh' "$(( left / 86400 ))" "$(( left % 86400 / 3600 ))"
+    elif (( left >= 3600 ));  then printf -v when '%dh%02dm' "$(( left / 3600 ))" "$(( left % 3600 / 60 ))"
+    elif (( left >= 60 ));    then printf -v when '%dm' "$(( left / 60 ))"
+    else                           when='<1m'; fi
+    when=" ${dim}↻${when}${off}"
+  fi
+  printf '  %s%s%s %s%s%%%s%s' "$l" "$1" "$off" "$t" "$2" "$off" "$when"
 }
 
 line1="${tone}${bird}${off}  ${bold}${model}${off}"
 [[ -n $effort ]]     && line1+=" ${plum}effort${off} ${effort}"
 [[ $think == true ]] && line1+=" ${plum}think${off}"
-line1+="$(limit 5h "$lim5")$(limit 7d "$lim7")"
+line1+="$(limit 5h "$lim5" '' "$r5")$(limit 7d "$lim7" '' "$r7")"
 for (( i=0; i<${#scoped_limits[@]}; i+=2 )); do
   # Fable gets its own colour, so its weekly limit stands out from 5h / 7d.
   ltone=''; [[ ${scoped_limits[i]} == fable ]] && ltone=$violet
