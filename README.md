@@ -109,6 +109,9 @@ bash demo.sh          # every mood + edge cases; exits 1 on failure
 bash demo.sh stunts   # the nine idle stunts, frame by frame
 ```
 
+CI runs both on Ubuntu, macOS (Homebrew bash + coreutils) and Windows (Git Bash)
+for every pull request.
+
 ## License
 
 MIT © 2026 Zelyvox

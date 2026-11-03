@@ -1,0 +1,41 @@
+name: demo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  demo:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # macOS ships bash 3.2 and BSD coreutils; the raven needs bash 4+ and
+      # GNU stat/head/tail, exactly as the README says.
+      - name: Install bash and GNU coreutils
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash coreutils jq
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+
+      - name: Show the toolchain
+        shell: bash
+        run: |
+          bash --version | head -1
+          jq --version
+          stat --version | head -1
+
+      - name: Moods and edge cases
+        shell: bash
+        run: bash demo.sh
+
+      - name: Idle stunts
+        shell: bash
+        run: bash demo.sh stunts
