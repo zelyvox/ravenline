@@ -16,7 +16,8 @@ for lane_file in "${ZELYVOX_LANES_DIR:-$HOME/.zelyvox/lanes}"/*/meta.json; do
   lane_files+=("$lane_file")
 done
 
-model='?' ctx=0 effort='' think=false lim5=-1 lim7=-1 r5=-1 r7=-1 dir=. sid=none transcript=''
+model='?' ctx=0 effort='' think=false fast=false lim5=-1 lim7=-1 r5=-1 r7=-1 dir=. sid=none transcript=''
+prnum='' prstate=''
 # @sh quotes every value, so eval only ever sees plain assignments.
 # tr strips the CR that Windows builds of jq append to each line.
 eval "$(jq -r "${lane_args[@]}" '
@@ -36,6 +37,7 @@ eval "$(jq -r "${lane_args[@]}" '
   @sh "ctx=\(.context_window.used_percentage // 0 | floor)",
   @sh "effort=\(.effort.level // "")",
   @sh "think=\(.thinking.enabled // false)",
+  @sh "fast=\(.fast_mode // false)",
   @sh "lim5=\(.rate_limits.five_hour.used_percentage // -1 | floor)",
   @sh "lim7=\(.rate_limits.seven_day.used_percentage // -1 | floor)",
   @sh "r5=\(.rate_limits.five_hour.resets_at // -1 | floor)",
@@ -43,6 +45,10 @@ eval "$(jq -r "${lane_args[@]}" '
   @sh "dir=\(.workspace.current_dir // .cwd // ".")",
   @sh "sid=\(.session_id // "none")",
   @sh "transcript=\(.transcript_path // "")",
+  # pr is present only while the branch has an open pull request (or merge
+  # request); review_state may be missing on its own.
+  @sh "prnum=\(.pr.number // "")",
+  @sh "prstate=\(.pr.review_state // "")",
   @sh "rl=\(.rate_limits // null | tojson)",
   ($ARGS.named | to_entries | map(
     .key as $key | (try (.value | fromjson) catch null) |
@@ -70,6 +76,7 @@ isnum "$lim5"  || lim5=-1
 isnum "$lim7"  || lim7=-1
 isnum "$r5"    || r5=-1
 isnum "$r7"    || r7=-1
+isnum "$prnum" && (( prnum > 0 )) || prnum=''
 now=$(date +%s 2>/dev/null); isnum "$now" || now=0
 tick=${RL_TICK:-$now};        isnum "$tick" || tick=0
 
@@ -247,6 +254,7 @@ limit() { # limit <label> <percent> [tone] [resets_at]; prints nothing when unkn
 line1="${tone}${bird}${off}  ${bold}${model}${off}"
 [[ -n $effort ]]     && line1+=" ${plum}effort${off} ${effort}"
 [[ $think == true ]] && line1+=" ${plum}think${off}"
+[[ $fast == true ]]  && line1+=" ${bronze}fast${off}"
 line1+="$(limit 5h "$lim5" '' "$r5")$(limit 7d "$lim7" '' "$r7")"
 for (( i=0; i<${#scoped_limits[@]}; i+=2 )); do
   # Fable gets its own colour, so its weekly limit stands out from 5h / 7d.
@@ -258,6 +266,15 @@ line2="${gtone}${gauge} ${ctx}%${off}"
 if [[ -n $branch ]]; then
   (( ${#branch} > 22 )) && branch="${branch:0:21}…"
   line2+="  ${dim}⎇${off} ${branch}${dirty:+${bronze}${dirty}${off}}"
+fi
+# The branch's open pull request and where its review stands.
+if [[ -n $prnum ]]; then
+  line2+="  ${dim}#${off}${prnum}"
+  case $prstate in
+    approved)          line2+=" ${green}approved${off}" ;;
+    changes_requested) line2+=" ${rust}changes${off}" ;;
+    draft|pending)     line2+=" ${dim}${prstate}${off}" ;;
+  esac
 fi
 
 printf '%s\n%s\n' "$line1" "$line2"
