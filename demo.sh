@@ -62,6 +62,26 @@ out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh)
 out=$(json 40 high | sed 's/"resets_at":[0-9]*/"resets_at":1/g' | NO_COLOR=1 bash ./ravenline.sh | head -1)
 [[ $out == *"↻"* ]] && { echo "  FAIL: past reset still shown"; fail=1; }
 
+# Fast mode tag and the branch's open pull request with its review state.
+pr='"fast_mode":true,"pr":{"number":42,"url":"https://github.com/zelyvox/ravenline/pull/42","review_state":"approved"}'
+out=$(json 40 high | sed "s|}\$|,$pr}|" | NO_COLOR=1 bash ./ravenline.sh)
+printf '
+[1m%s[0m
+%s
+' "fast mode + pull request" "$out"
+[[ $out == *" fast "* ]] || { echo "  FAIL: fast tag missing"; fail=1; }
+[[ $out == *"#42 approved"* ]] || { echo "  FAIL: pull request missing"; fail=1; }
+out=$(json 40 high | sed 's|}$|,"fast_mode":false,"pr":{"number":42,"review_state":"changes_requested"}}|' | NO_COLOR=1 bash ./ravenline.sh)
+[[ $out == *" fast "* ]] && { echo "  FAIL: fast tag shown while off"; fail=1; }
+[[ $out == *"#42 changes"* ]] || { echo "  FAIL: changes_requested not shown"; fail=1; }
+# No review state yet, and a state the script does not know: the number stays.
+out=$(json 40 high | sed 's|}$|,"pr":{"number":7}}|' | NO_COLOR=1 bash ./ravenline.sh | tail -1)
+[[ $out == *"#7" ]] || { echo "  FAIL: pull request without review state"; fail=1; }
+out=$(json 40 high | sed 's|}$|,"pr":{"number":7,"review_state":"weird state"}}|' | NO_COLOR=1 bash ./ravenline.sh | tail -1)
+[[ $out == *"#7" ]] || { echo "  FAIL: unknown review state broke the line"; fail=1; }
+out=$(json 40 high | sed 's|}$|,"pr":{"number":"x"}}|' | NO_COLOR=1 bash ./ravenline.sh | tail -1)
+[[ $out == *"#"* ]] && { echo "  FAIL: non-numeric pull request number shown"; fail=1; }
+
 # Model-scoped weekly limit from the usage cache; hidden once the cache is stale.
 out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh | head -1)
 printf '\n\033[1m%s\033[0m\n%s\n' "model-scoped limit" "$out"
