@@ -3,7 +3,7 @@
 A raven that watches your Claude Code session. Two lines, pure bash.
 
 ```
-⟨•▼•⟩  Opus 5.5 effort medium think  5h 51%  7d 7%
+⟨•▼•⟩  Opus 5.5 effort medium think  5h 51% ↻2h10m  7d 7% ↻4d3h
 ▓▓░░░░░░ 31%  ⎇ main*
 ```
 
@@ -29,8 +29,9 @@ Muninn, thought and memory.
 ## What it shows
 
 - **Line 1:** the raven, model, effort, `think` when extended thinking is on,
-  5-hour / 7-day rate-limit usage, and any weekly limit scoped to one model,
-  such as `fable` on Max, shown in violet (each turns red at 80%)
+  5-hour / 7-day rate-limit usage with the time until each window resets
+  (`↻2h10m`), and any weekly limit scoped to one model, such as `fable` on Max,
+  shown in violet (each turns red at 80%)
 - **Line 2:** context gauge (green → yellow → red), git branch with `*` for
   uncommitted changes
 - **Below:** one line per background worker that is still running: Claude Code

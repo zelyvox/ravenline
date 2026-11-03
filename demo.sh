@@ -19,7 +19,9 @@ printf '%s\nFable\t67\n' "$(date +%s)" >"$RAVENLINE_USAGE_FILE"
 json() { # json <ctx> <effort>
   printf '{"model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":%s},' "$1"
   printf '"effort":{"level":"%s"},"thinking":{"enabled":true},' "$2"
-  printf '"rate_limits":{"five_hour":{"used_percentage":41},"seven_day":{"used_percentage":83}},'
+  # Resets 1h30m and 4d3h away, with 30 s of slack so the render's clock agrees.
+  printf '"rate_limits":{"five_hour":{"used_percentage":41,"resets_at":%s},"seven_day":{"used_percentage":83,"resets_at":%s}},' \
+    "$(( $(date +%s) + 5430 ))" "$(( $(date +%s) + 4 * 86400 + 3 * 3600 + 1830 ))"
   printf '"workspace":{"current_dir":"%s"},"session_id":"%s%s"}' "$PWD" "$tag" "$RANDOM"
 }
 
@@ -54,6 +56,11 @@ run "NO_COLOR"                5  "$(json 40 high)" NO_COLOR=1
 
 out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh)
 [[ $out == *$'\033'* ]] && { echo "  FAIL: NO_COLOR still printed escapes"; fail=1; }
+
+# Time until each rate-limit window resets; hidden when resets_at is missing or past.
+[[ $out == *"5h 41% ↻1h30m"* && $out == *"7d 83% ↻4d3h"* ]] || { echo "  FAIL: reset countdown missing"; fail=1; }
+out=$(json 40 high | sed 's/"resets_at":[0-9]*/"resets_at":1/g' | NO_COLOR=1 bash ./ravenline.sh | head -1)
+[[ $out == *"↻"* ]] && { echo "  FAIL: past reset still shown"; fail=1; }
 
 # Model-scoped weekly limit from the usage cache; hidden once the cache is stale.
 out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh | head -1)
