@@ -173,13 +173,17 @@ if (( now - stamp >= 5 )); then
   printf '%s\t%s\t%s\n' "$now" "$branch" "$dirty" >"$cache" 2>/dev/null
 fi
 
-# ---- caches of sessions that ended. A render cancelled mid-scan can leave temp
-# files behind, so once an hour anything older than a day is removed. ----
+# ---- leftovers. A render cancelled mid-scan leaves its per-process temp files
+# (ravenline.<key>.<pid>.<part>) behind: every five minutes those older than ten
+# minutes are removed, and caches of sessions that ended after a day. The sweep
+# stays in the foreground, since a backgrounded find dies with the render. ----
 sweep="${TMPDIR:-/tmp}/ravenline.sweep"
 sweep_stamp=0; { IFS= read -r sweep_stamp; } 2>/dev/null <"$sweep"
 sweep_stamp=${sweep_stamp//$'\r'/}; isnum "$sweep_stamp" || sweep_stamp=0
-if (( now - sweep_stamp >= 3600 || now < sweep_stamp )) && printf '%s\n' "$now" >"$sweep" 2>/dev/null; then
-  find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'ravenline.*' -mmin +1440 -delete </dev/null >/dev/null 2>&1 &
+if (( now - sweep_stamp >= 300 || now < sweep_stamp )) && printf '%s\n' "$now" >"$sweep" 2>/dev/null; then
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'ravenline.*' \( -mmin +1440 -o -mmin +10 \( \
+      -name '*.[0-9]*.stat' -o -name '*.[0-9]*.head' -o -name '*.[0-9]*.tail' -o -name '*.[0-9]*.out' \) \) \
+    -delete </dev/null >/dev/null 2>&1
 fi
 
 # ---- palette, taken from the Zelyvox raven: plum feathers, bronze clasp ----
@@ -386,7 +390,14 @@ agent_scan() {
   # Temp files exist only on this path; a cache hit creates none.
   tmp_used=1
   printf '%s' "$stat_rows" >"$tmp.stat"
-  if (( ${#heads[@]} )); then head -n -0 -v -- "${heads[@]}" >"$tmp.head" 2>/dev/null; else : >"$tmp.head"; fi
+  # Only the opening of a log decides it (model, entrypoint, first prompt), so
+  # each log is capped at 2 MB. Copying whole transcripts made the scan of a
+  # long session outlive the render: it was cancelled before it could cache the
+  # result, so the copy repeated, and leaked, on every refresh.
+  : >"$tmp.head"
+  for p in "${heads[@]}"; do
+    { printf '==> %s <==\n' "$p"; head -c 2097152 -- "$p"; printf '\n'; } >>"$tmp.head" 2>/dev/null
+  done
   if (( ${#tails[@]} )); then tail -n 3 -v -- "${tails[@]}" >"$tmp.tail" 2>/dev/null; else : >"$tmp.tail"; fi
   [[ -f $base ]] || printf '0\n' >"$base"
   jq -bnr --rawfile stats "$tmp.stat" --rawfile heads "$tmp.head" \
