@@ -6,11 +6,10 @@
 cd "$(dirname "$0")" || exit 1
 fail=0
 tag="demo$$x"   # unique to this run, so cleanup never touches other files
-# Keep the demo off the real session: no real agent logs, lanes or limits file.
+# Keep the demo off the real session: no real limits or usage file.
 sandbox=$(mktemp -d) || exit 1
-trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"* "${TMPDIR:-/tmp}"/ravenline.agents."$tag"*; rm -rf "$sandbox"' EXIT
-export RAVENLINE_CLAUDE_DIR="$sandbox/claude" RAVENLINE_CODEX_DIR="$sandbox/codex"
-export ZELYVOX_LANES_DIR="$sandbox/lanes" RAVENLINE_LIMITS_FILE="$sandbox/limits.json"
+trap 'rm -f "${TMPDIR:-/tmp}"/ravenline."$tag"*; rm -rf "$sandbox"' EXIT
+export RAVENLINE_LIMITS_FILE="$sandbox/limits.json"
 # No credentials and a fresh usage cache: the demo never calls the usage endpoint.
 export RAVENLINE_CREDENTIALS_FILE="$sandbox/no-credentials.json" RAVENLINE_USAGE_FILE="$sandbox/usage.tsv"
 export RAVENLINE_USAGE=1 RAVENLINE_USAGE_TTL=300
@@ -90,24 +89,16 @@ printf '%s\nFable\t67\n' "$(( $(date +%s) - 3600 ))" >"$RAVENLINE_USAGE_FILE"
 out=$(json 40 high | NO_COLOR=1 bash ./ravenline.sh | head -1)
 [[ $out == *fable* ]] && { echo "  FAIL: stale scoped limit still shown"; fail=1; }
 
-# Subagent rows: one still working, one that delivered its report through the
-# SubagentHandback tool (no end_turn after it). Only the first may be listed.
+# Claude Code lists its own subagents, so a running one adds no line here.
 transcript="$sandbox/session.jsonl"; subs="$sandbox/session/subagents"
 mkdir -p "$subs"; : >"$transcript"
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf '{"type":"assistant","timestamp":"%s","message":{"content":[{"type":"tool_use","name":"Bash"}]}}\n' "$ts" >"$subs/agent-live.jsonl"
-printf '{"description":"working lane","model":"sonnet"}' >"$subs/agent-live.meta.json"
-{ printf '{"type":"assistant","timestamp":"%s","message":{"content":[{"type":"tool_use","name":"SubagentHandback"}]}}\n' "$ts"
-  printf '{"type":"user","timestamp":"%s","message":{"content":[{"type":"tool_result"}]}}\n' "$ts"
-} >"$subs/agent-done.jsonl"
-printf '{"description":"finished lane","model":"sonnet"}' >"$subs/agent-done.meta.json"
+printf '{"description":"working agent","model":"sonnet"}' >"$subs/agent-live.meta.json"
 out=$(json 40 high | sed "s|}\$|,\"transcript_path\":\"$transcript\"}|" | NO_COLOR=1 bash ./ravenline.sh)
-printf '\n\033[1m%s\033[0m\n%s\n' "subagents" "$out"
-[[ $out == *"working lane"* ]] || { echo "  FAIL: running subagent not listed"; fail=1; }
-[[ $out == *"finished lane"* ]] && { echo "  FAIL: handed-back subagent still listed"; fail=1; }
-# A scan that returns leaves no temp files beside its cache.
-leftover=$(ls "${TMPDIR:-/tmp}"/ravenline.agents."$tag"*.* 2>/dev/null | wc -l)
-(( leftover == 0 )) || { echo "  FAIL: scan left $leftover temp files"; fail=1; }
+printf '\n\033[1m%s\033[0m\n%s\n' "subagent running" "$out"
+[[ $out == *"working agent"* ]] && { echo "  FAIL: subagent listed again"; fail=1; }
+[[ $(printf '%s\n' "$out" | wc -l) -eq 2 ]] || { echo "  FAIL: expected 2 lines with a subagent running"; fail=1; }
 
 echo
 (( fail )) && echo "some checks failed" || echo "all checks passed"
