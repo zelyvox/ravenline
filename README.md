@@ -36,10 +36,9 @@ Muninn, thought and memory.
 - **Line 2:** context gauge (green → yellow → red), git branch with `*` for
   uncommitted changes, and the branch's open pull request with where its
   review stands (`approved`, `changes`, `pending`, `draft`)
-- **Below:** one line per background worker that is still running: Claude Code
-  subagents (`✦`), Codex sessions and Zelyvox lanes (`⚙`), with elapsed time.
-  A worker drops off when it finishes, including a subagent that ends by handing
-  its report back. Logs older than two hours are never opened.
+
+Background agents are not listed: Claude Code shows its own subagents under the
+status line, so a second list only repeated them.
 
 ### The one network call
 
@@ -60,11 +59,10 @@ On macOS, Claude Code keeps the token in the Keychain rather than in
 
 ## Install
 
-Needs bash 4 or newer, `git`, `jq` and GNU coreutils (`stat`, `head`, `tail`,
-`find`); `curl` for model-scoped limits. Tested on Windows (Git Bash); Linux has
+Needs bash 4 or newer, `git`, `jq` and `find`; `curl` for model-scoped
+limits. Tested on Windows (Git Bash); Linux has
 all of it. macOS ships bash 3.2, so install bash with Homebrew and point the
-command at it (`/opt/homebrew/bin/bash ~/.claude/ravenline.sh`); without GNU
-coreutils the worker list should stay empty while the rest works.
+command at it (`/opt/homebrew/bin/bash ~/.claude/ravenline.sh`).
 
 Caches live in `$TMPDIR` as `ravenline.*`; those older than a day are swept
 once an hour.
@@ -95,9 +93,6 @@ prefer a still bird.
 | --- | --- |
 | `NO_COLOR` | any value disables colors |
 | `RL_TICK` | pin the animation clock (tests, screenshots) |
-| `RAVENLINE_CLAUDE_DIR` | Claude Code data dir to scan for workers (default `~/.claude`) |
-| `RAVENLINE_CODEX_DIR` | Codex data dir (default `~/.codex`) |
-| `ZELYVOX_LANES_DIR` | Zelyvox lane metadata (default `~/.zelyvox/lanes`) |
 | `RAVENLINE_LIMITS_FILE` | where the latest rate limits are saved for other local tools (default `~/.claude/ravenline-limits.json`) |
 | `RAVENLINE_USAGE` | `0` turns off the usage-endpoint call and the model-scoped limits |
 | `RAVENLINE_USAGE_TTL` | seconds between endpoint calls (default `300`, `60` to `86400`) |
